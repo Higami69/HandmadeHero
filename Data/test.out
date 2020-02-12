@@ -1,0 +1,159 @@
+﻿#include "Handmade.h"
+#include <math.h>
+
+internal_func void GameOutputSound(game_state* gameState, game_soundOutput_buffer *pSoundBuffer, int toneHz)
+{
+	int16 toneVolume = 3000;
+	int wavePeriod = pSoundBuffer->samplesPerSecond / toneHz;
+
+	int16 *pSampleOut = pSoundBuffer->pSamples;
+	for (int sampleIndex = 0; sampleIndex < pSoundBuffer->sampleCount; ++sampleIndex)
+	{
+#if 1
+		real32 sineValue = sinf(gameState->tSine);
+		int16 sampleValue = int16(sineValue * toneVolume);
+#else
+		int16 sampleValue = 0;
+#endif
+		*pSampleOut++ = sampleValue;
+		*pSampleOut++ = sampleValue;
+
+		gameState->tSine += (2.f * Pi32 * 1.f) / (real32)wavePeriod;
+		if(gameState->tSine > 2.f*Pi32)
+		{
+			gameState->tSine -= 2.0f*Pi32;
+		}
+	}
+}
+
+internal_func void
+RenderWeirdGradient(game_offscreen_buffer *buffer, int xOffset, int yOffset)
+{
+	uint8 *row = (uint8 *)buffer->memory;
+	for (int y = 0; y < buffer->height; ++y)
+	{
+		uint32 *pixel = (uint32 *)row;
+		for (int x = 0; x < buffer->width; ++x)
+		{
+			/*
+			Pixel in memory: BB GG RR xx
+			0x xxRRGGBB
+			*/
+
+			uint8 blue = (uint8)(x + xOffset);
+			uint8 green = (uint8)(y + yOffset);
+
+			*pixel++ = ((green << 8) | (blue));
+		}
+
+		row += buffer->pitch;
+	}
+}
+
+internal_func void
+RenderPlayer(game_offscreen_buffer *buffer, int playerX, int playerY)
+{
+	uint8* endOfBuffer = (uint8*)buffer->memory + buffer->pitch * buffer->height;
+	uint32 color = 0xFFFFFFFF;
+	int top = playerY;
+	int bottom = playerY + 10;
+	for(int x = playerX; x < playerX + 10; x++)
+	{
+		uint8* pixel = (uint8*)buffer->memory + x * buffer->bytesPerPixel + top * buffer->pitch;
+		for (int y = top; y < bottom; ++y)
+		{
+			if (pixel >= buffer->memory && (pixel + 4) < endOfBuffer)
+			{
+				*(uint32*)pixel = color;
+			}
+			pixel += buffer->pitch;
+		}
+	}
+}
+
+extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
+{
+	Assert(&input->controllers[0].terminator - &input->controllers[0].buttons[0] == ArrayCount(input->controllers[0].buttons));
+	Assert(sizeof(game_state) <= memory->permanentStorageSize);
+
+	game_state* gameState = (game_state*)memory->pPermanentStorage;
+	if(!memory->isInitialized)
+	{
+		char *pFileName = (char*)__FILE__;
+
+		debug_read_file_result _memory = memory->DEBUG_PlatformReadEntireFile(thread, pFileName);
+		if (_memory.contents)
+		{
+			memory->DEBUG_PlatformWriteEntireFile(thread, (char*)"Test.out", _memory.contentsSize, _memory.contents);
+			memory->DEBUG_PlatformFreeFileMemory(thread, _memory.contents);
+		}
+
+		gameState->toneHz = 256;
+		gameState->tSine = 0.0f;
+
+		gameState->playerX = 100;
+		gameState->playerY = 100;
+
+		//TODO: may be more appropriate in platform layer
+		memory->isInitialized = true;
+	}
+
+	for (int controllerIdx = 0; controllerIdx < ArrayCount(input->controllers); controllerIdx++)
+	{
+		game_controller_input *pController = GetController(input, controllerIdx);
+		if (pController->isAnalog)
+		{
+			//Use analog motion tuning
+			gameState->toneHz = 256 + (int)(128.f *(pController->stickAverageY));
+			gameState->blueOffset += (int)(4.f * pController->stickAverageX);
+		}
+		else
+		{
+			//Use digital motion tuning
+			if (pController->moveLeft.endedDown)
+			{
+				gameState->blueOffset -= 1;
+			}
+			if(pController->moveRight.endedDown)
+			{
+				gameState->blueOffset += 1;
+			}
+		}
+
+		//input.aButtonEndedDown;
+		//input.aButtonHalfTransitions;
+
+		gameState->playerX += (int)(4.f * pController->stickAverageX);
+		gameState->playerY -= (int)(4.f * pController->stickAverageY);
+
+		if(gameState->tJump > 0)
+		{
+			gameState->playerY += (int)(5 * sinf(Pi32*gameState->tJump));
+		}
+		if (pController->actionDown.endedDown)
+		{
+			gameState->tJump = 2.0;
+		}
+		gameState->tJump -= 0.033f;
+	}
+
+	//TODO: Allow sample offets here for more robust platform options
+	RenderWeirdGradient(buffer, gameState->blueOffset, gameState->greenOffset);
+	RenderPlayer(buffer, gameState->playerX, gameState->playerY);
+	
+	for (int buttonIndex = 0; buttonIndex < ArrayCount(input->mouseButtons); buttonIndex++)
+	{
+		if (input->mouseButtons[buttonIndex].endedDown)
+		{
+			RenderPlayer(buffer, 10 + 20*buttonIndex, 10);
+		}
+		RenderPlayer(buffer, input->mouseX, input->mouseY);
+	}
+}
+
+extern "C" GAME_GET_SOUND_SAMPLES(GameGetSoundSamples)
+{
+	game_state* gameState = (game_state*)memory->pPermanentStorage;
+
+	GameOutputSound(gameState, soundBuffer, gameState->toneHz);
+}
