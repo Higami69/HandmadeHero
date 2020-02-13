@@ -103,7 +103,25 @@ DrawBitmap(game_offscreen_buffer* buffer, loaded_bitmap* bitmap, real32 realX, r
 		uint32* source = (uint32*)sourceRow;
 		for (int32 x = minX; x < maxX; ++x)
 		{
-			*dest++ = *source++;
+			real32 a = (real32)((*source >> 24) & 0xFF) / 255.0f;
+			real32 sr = (real32)((*source >> 16) & 0xFF);
+			real32 sg = (real32)((*source >> 8) & 0xFF);
+			real32 sb = (real32)((*source >> 0) & 0xFF);
+
+			real32 dr = (real32)((*dest >> 16) & 0xFF);
+			real32 dg = (real32)((*dest >> 8) & 0xFF);
+			real32 db = (real32)((*dest >> 0) & 0xFF);
+
+			real32 r = ((1.0f - a) * dr) + (a * sr);
+			real32 g = ((1.0f - a) * dg) + (a * sg);
+			real32 b = ((1.0f - a) * db) + (a * sb);
+
+			*dest = (((uint32)(r + 0.5f)) << 16 |
+					 ((uint32)(g + 0.5f)) << 8  |
+					 ((uint32)(b + 0.5f)) << 0  );
+
+			++dest;
+			++source;
 		}
 
 		destRow += buffer->pitch;
@@ -137,28 +155,6 @@ struct bitmap_header
 };
 #pragma pack(pop)
 
-struct bit_scan_result
-{
-	bool32 found;
-	uint32 index;
-};
-inline bit_scan_result FindLeastSignificantSetBit(uint32 value)
-{
-	bit_scan_result result = {};
-
-	for (uint32 test = 0; test < 32; ++test)
-	{
-		if (value & (1 << test))
-		{
-			result.index = test;
-			result.found = true;
-			break;
-		}
-	}
-
-	return result;
-}
-
 internal_func loaded_bitmap
 DEBUGLoadBMP(thread_context *thread, debug_platform_read_entire_file *ReadEntireFile, char *fileName)
 {
@@ -174,6 +170,8 @@ DEBUGLoadBMP(thread_context *thread, debug_platform_read_entire_file *ReadEntire
 		result.pixels = pixels;
 		result.width = header->width;
 		result.height = header->height;
+
+		Assert(header->compression == 3);
 
 		uint32 redMask = header->redMask;
 		uint32 greenMask = header->greenMask;
@@ -499,6 +497,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 	real32 playerLeft = screenCenterX - metersToPixels*0.5f*playerWidth;
 	real32 playerTop = screenCenterY - metersToPixels*playerHeight;
 
+	DrawRectangle(buffer, playerLeft, playerTop, playerLeft + metersToPixels * playerWidth, playerTop + metersToPixels * playerHeight, playerR, playerG, playerB);
 	DrawBitmap(buffer, &gameState->heroHead, playerLeft, playerTop);
 }
 
