@@ -184,25 +184,30 @@ inline FILETIME Win32GetLastWriteTime(char* fileName)
 	return lastWriteTime;
 }
 
-internal_func win32_game_code Win32LoadGameCode(char* sourceDllName, char* tempDllName)
+internal_func win32_game_code Win32LoadGameCode(char* sourceDllName, char* tempDllName, char* lockFileName)
 {
 	win32_game_code result = {};
 
-	result.dllLastWriteTime = Win32GetLastWriteTime(sourceDllName);
-	Assert(CopyFile(sourceDllName, tempDllName, false) != 0);
-	result.gameCodeDll = LoadLibraryA(tempDllName);
-	if(result.gameCodeDll)
+	WIN32_FILE_ATTRIBUTE_DATA ignored;
+	if (!GetFileAttributesEx(lockFileName, GetFileExInfoStandard, &ignored))
 	{
-		result.UpdateAndRender = (game_update_and_render*)GetProcAddress(result.gameCodeDll, "GameUpdateAndRender");
-		result.GetSoundSamples = (game_get_sound_samples*)GetProcAddress(result.gameCodeDll, "GameGetSoundSamples");
 
-		result.isValid = (result.UpdateAndRender && result.GetSoundSamples);
-	}
+		result.dllLastWriteTime = Win32GetLastWriteTime(sourceDllName);
+		Assert(CopyFile(sourceDllName, tempDllName, false) != 0);
+		result.gameCodeDll = LoadLibraryA(tempDllName);
+		if (result.gameCodeDll)
+		{
+			result.UpdateAndRender = (game_update_and_render*)GetProcAddress(result.gameCodeDll, "GameUpdateAndRender");
+			result.GetSoundSamples = (game_get_sound_samples*)GetProcAddress(result.gameCodeDll, "GameGetSoundSamples");
 
-	if(!result.isValid)
-	{
-		result.UpdateAndRender = 0;
-		result.GetSoundSamples = 0;
+			result.isValid = (result.UpdateAndRender && result.GetSoundSamples);
+		}
+
+		if (!result.isValid)
+		{
+			result.UpdateAndRender = 0;
+			result.GetSoundSamples = 0;
+		}
 	}
 
 	return result;
@@ -863,6 +868,9 @@ WinMain(HINSTANCE hInstance,
 	char tempGameCodeDllFullPath[WIN32_STATE_FILE_NAME_COUNT];
 	Win32BuildExePathFileName(&win32State, "Handmade_Temp.dll", sizeof(tempGameCodeDllFullPath), tempGameCodeDllFullPath);
 
+	char lockGameCodeDllFullPath[WIN32_STATE_FILE_NAME_COUNT];
+	Win32BuildExePathFileName(&win32State, "lock.tmp", sizeof(lockGameCodeDllFullPath), lockGameCodeDllFullPath);
+
 	//Set the windows scheduler granularity to 1 ms so that our Sleep() can be more granular
 	UINT desiredSchedulerMS = 1;
 	bool32 sleepIsGranular = (timeBeginPeriod(desiredSchedulerMS) == TIMERR_NOERROR);
@@ -972,7 +980,7 @@ WinMain(HINSTANCE hInstance,
 				real32 audioLatencySeconds;
 				bool32 soundIsValid = false;
 
-				win32_game_code game = Win32LoadGameCode(sourceGameCodeDllFullPath, tempGameCodeDllFullPath);
+				win32_game_code game = Win32LoadGameCode(sourceGameCodeDllFullPath, tempGameCodeDllFullPath, lockGameCodeDllFullPath);
 
 				uint64 lastCycleCount = __rdtsc();
 				while (g_Running)
@@ -983,7 +991,7 @@ WinMain(HINSTANCE hInstance,
 					if(CompareFileTime(&newDllWriteTime, &game.dllLastWriteTime) != 0)
 					{
 						Win32UnloadGameCode(&game);
-						game = Win32LoadGameCode(sourceGameCodeDllFullPath, tempGameCodeDllFullPath);
+						game = Win32LoadGameCode(sourceGameCodeDllFullPath, tempGameCodeDllFullPath, lockGameCodeDllFullPath);
 					}
 
 					//TODO: Zeroing macro

@@ -77,18 +77,29 @@ struct loaded_bitmap
 	int32 height;
 	uint32* pixels;
 };
+
+struct hero_bitmaps
+{
+	int32 alignX;
+	int32 alignY;
+
+	loaded_bitmap head;
+	loaded_bitmap cape;
+	loaded_bitmap torso;
+};
+
 struct game_state
 {
 	memory_arena worldArena;
 	world *world;
 
+	tile_map_position cameraP;
 	tile_map_position playerP;
 
 	loaded_bitmap backdrop;
 
-	loaded_bitmap heroHead;
-	loaded_bitmap heroCape;
-	loaded_bitmap heroTorso;
+	uint32 heroFacingDirection;
+	hero_bitmaps heroBitmaps[4];
 };
 
 #define HANDMADE_H
