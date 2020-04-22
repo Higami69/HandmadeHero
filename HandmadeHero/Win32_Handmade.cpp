@@ -1,5 +1,5 @@
 #pragma region Typedefs, Structs and Defines
-#include "Handmade.h"
+#include "Handmade_Platform.h"
 
 #include <malloc.h>
 #include <Windows.h>
@@ -162,6 +162,30 @@ global_var bool32 g_Pause;
 global_var win32_offscreen_buffer g_BackBuffer;
 global_var LPDIRECTSOUNDBUFFER g_SecondaryBuffer;
 global_var int64 g_PerfCountFrequency;
+global_var bool32 g_DEBUGShowCursor;
+global_var WINDOWPLACEMENT g_WindowPos = { sizeof(g_WindowPos) };
+
+internal_func void ToggleFullscreen(HWND window)
+{
+	DWORD style = GetWindowLong(window, GWL_STYLE);
+	if (style & WS_OVERLAPPEDWINDOW)
+	{
+		MONITORINFO monitorInfo = { sizeof(monitorInfo) };
+		if (GetWindowPlacement(window, &g_WindowPos) && GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY), &monitorInfo))
+		{
+			SetWindowLong(window, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
+			SetWindowPos(window, HWND_TOP, monitorInfo.rcMonitor.left, monitorInfo.rcMonitor.top,
+				monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left, monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top,
+				SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+		}
+	}
+	else
+	{
+		SetWindowLong(window, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
+		SetWindowPlacement(window, &g_WindowPos);
+		SetWindowPos(window, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+	}
+}
 
 inline FILETIME Win32GetLastWriteTime(char* fileName)
 {
@@ -375,21 +399,34 @@ Win32ResizeDIBSection(win32_offscreen_buffer *buffer, int width, int height)
 internal_func void
 Win32DisplayBufferInWindow(win32_offscreen_buffer *buffer, HDC deviceContext, int windowWidth, int windowHeight)
 {
-	int offsetX = 10;
-	int offsetY = 10;
+	if ((windowWidth == buffer->width * 2) && (windowHeight == buffer->height * 2))
+	{
+		StretchDIBits(deviceContext,
+			0, 0, 2*buffer->width, 2*buffer->height,
+			0, 0, buffer->width, buffer->height,
+			buffer->memory,
+			&buffer->info,
+			DIB_RGB_COLORS, SRCCOPY
+		);
+	}
+	else
+	{
+		int offsetX = 10;
+		int offsetY = 10;
 
-	PatBlt(deviceContext, 0, 0, windowWidth, offsetY, BLACKNESS);
-	PatBlt(deviceContext, 0, offsetY + buffer->height, windowWidth, windowHeight, BLACKNESS);
-	PatBlt(deviceContext, 0, 0, offsetX, windowHeight, BLACKNESS);
-	PatBlt(deviceContext, offsetX + buffer->width, 0, windowWidth, windowHeight, BLACKNESS);
+		PatBlt(deviceContext, 0, 0, windowWidth, offsetY, BLACKNESS);
+		PatBlt(deviceContext, 0, offsetY + buffer->height, windowWidth, windowHeight, BLACKNESS);
+		PatBlt(deviceContext, 0, 0, offsetX, windowHeight, BLACKNESS);
+		PatBlt(deviceContext, offsetX + buffer->width, 0, windowWidth, windowHeight, BLACKNESS);
 
-	StretchDIBits( deviceContext,
-		offsetX, offsetY, buffer->width, buffer->height,
-		0, 0, buffer->width, buffer->height,
-		buffer->memory,
-		&buffer->info,
-		DIB_RGB_COLORS, SRCCOPY
-	);
+		StretchDIBits(deviceContext,
+			offsetX, offsetY, buffer->width, buffer->height,
+			0, 0, buffer->width, buffer->height,
+			buffer->memory,
+			&buffer->info,
+			DIB_RGB_COLORS, SRCCOPY
+		);
+	}
 }
 
 LRESULT CALLBACK 
@@ -406,6 +443,18 @@ Win32MainWindowCallback(	HWND	window,
 		{
 		//TODO: Handle this with a message to the user?
 		g_Running = false;
+		} break;
+
+		case WM_SETCURSOR:
+		{
+			if (g_DEBUGShowCursor)
+			{
+				result = DefWindowProcA(window, uMsg, wParam, lParam);
+			}
+			else
+			{
+				SetCursor(0);
+			}
 		} break;
 
 		case WM_ACTIVATEAPP:
@@ -733,13 +782,23 @@ internal_func void Win32ProcessPendingMessages(win32_state *win32State, game_con
 					}
 				}
 #endif
-			}
+				if (isDown)
+				{
+					//Alt + F4 functionality
+					bool altKeyWasDown = (message.lParam & (1 << 29));
+					if ((vkCode == VK_F4) && altKeyWasDown)
+					{
+						g_Running = false;
+					}
+					if ((vkCode == VK_RETURN) && altKeyWasDown)
+					{
+						if (message.hwnd)
+						{
+							ToggleFullscreen(message.hwnd);
+						}
+					}
+				}
 
-			//Alt + F4 functionality
-			bool altKeyWasDown = !(message.lParam & (1 << 29));
-			if ((vkCode == VK_F4) && altKeyWasDown)
-			{
-				g_Running = false;
 			}
 		} break;
 		default:
@@ -877,6 +936,9 @@ WinMain(HINSTANCE hInstance,
 
 	Win32LoadXInput();
 
+#if HANDMADE_INTERNAL
+	g_DEBUGShowCursor = true;
+#endif
 	WNDCLASS wndClass = {};
 
 	Win32ResizeDIBSection(&g_BackBuffer, 960, 540);
@@ -884,6 +946,7 @@ WinMain(HINSTANCE hInstance,
 	wndClass.style = CS_HREDRAW | CS_VREDRAW;
 	wndClass.lpfnWndProc = Win32MainWindowCallback;
 	wndClass.hInstance = hInstance;
+	wndClass.hCursor = LoadCursor(0, IDC_ARROW);
 	//wndClass.hIcon = ;
 	wndClass.lpszClassName = "HandmadeHeroWindowClass";
 

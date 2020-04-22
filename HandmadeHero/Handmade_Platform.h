@@ -34,6 +34,7 @@ extern "C" {
 // Types
 //
 #include <stdint.h>
+#include <stddef.h>
 
 
 	typedef int8_t int8;
@@ -59,6 +60,33 @@ extern "C" {
 
 	//Services that the platform layer provides to the game
 	//----------------------------------------------------------
+
+#define internal_func static
+#define local_persist static
+#define global_var static
+
+#define Pi32 3.14159265359f
+
+#if HANDMADE_SLOW
+#define Assert(expression) if(!(expression)) {*(int *)0 = 0;}
+#else
+#define Assert(expression)
+#endif
+
+#define Kilobytes(value) ((value) * 1024)
+#define Megabytes(value) (Kilobytes(value) * 1024)
+#define Gigabytes(value) (Megabytes(value) * 1024)
+#define Terabytes(value) (Gigabytes(value) * 1024)
+
+#define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
+
+	inline uint32 SafeTruncateUint64(uint64 value)
+	{
+		Assert(value <= 0xFFFFFFFF);
+		return (uint32)value;
+	}
+
+
 
 #if HANDMADE_INTERNAL
 	typedef struct debug_read_file_result
@@ -166,6 +194,12 @@ extern "C" {
 
 #define GAME_GET_SOUND_SAMPLES(name) void name(thread_context* thread, game_memory* memory, game_soundOutput_buffer *soundBuffer)
 	typedef GAME_GET_SOUND_SAMPLES(game_get_sound_samples);
+
+	inline game_controller_input* GetController(game_input* input, int controllerIndex)
+	{
+		Assert(controllerIndex < ArrayCount(input->controllers));
+		return &input->controllers[controllerIndex];
+	}
 
 #ifdef __cplusplus
 }
